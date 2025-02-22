@@ -12,8 +12,8 @@ def scrape_district(district):
     service = Service('/usr/local/bin/chromedriver')  # Update with your correct path
     driver = webdriver.Chrome(service=service)
 
-    first_page_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}?cIds=650"
-    paginated_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}/p{{}}?cIds=650"
+    first_page_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}"
+    paginated_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}/p{{}}"
 
     page = 1  # Start from page 1
     district_data = []  # Temporary list to store data for the current district
@@ -81,14 +81,9 @@ def scrape_district(district):
     # After finishing scraping the current district, save the data to CSV
     df_district = pd.DataFrame(district_data, columns=["Product Title", "Price", "Area", "Price per m²", "Bedrooms", "Toilets", "Location"])
 
-    # Filter out rows where everything except the title is 'N/A'
-    df_filtered = df_district[~df_district.iloc[:, 1:].apply(lambda row: (row == 'N/A').all(), axis=1)]
-
-    # Filter out rows where everything except the location is 'N/A'
-    df_filtered = df_filtered[~df_filtered.iloc[:, :-1].apply(lambda row: (row == 'N/A').all(), axis=1)]
 
     # Save the filtered DataFrame for the current district to a CSV
-    df_filtered.to_csv(f"data/filtered_real_estate_listings_{district}.csv", index=False)
+    df_district.to_csv(f"data/filtered_real_estate_listings_{district}.csv", index=False)
     
     
     # Clear the district data to free up memory
