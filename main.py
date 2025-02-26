@@ -3,6 +3,8 @@ from scraping import districts, scrape_district
 from fetch_parse import process_real_estate_data
 import os
 import pandas as pd
+
+
 def main():
     """
     Main function to scrape real estate listings for all districts in Hanoi
@@ -17,7 +19,7 @@ def main():
             os.makedirs("data", exist_ok=True)
 
             # Define page ranges for 3 processes (adjust max_pages as needed)
-            max_pages = 10  # Estimate or dynamically determine total pages if possible
+            max_pages = 143  # Estimate or dynamically determine total pages if possible
             pages_per_process = max_pages // 3
             page_ranges = [
                 (1, pages_per_process),                         # Process 1: Pages 1-3
@@ -37,7 +39,7 @@ def main():
             if all_data:
                 # Write combined data to a single CSV
                 df = pd.DataFrame(all_data, columns=[
-                    "Product ID", "Date Posted", "Product Title", "Price", "Area", "Price per m²", 
+                    "Id", "Date Posted", "Product Title", "Price", "Area", "Price per m²", 
                     "Bedrooms", "Toilets", "Location", "Coordinates"
                 ])
                 df.to_csv(csv_file_path, index=False)
@@ -51,6 +53,7 @@ def main():
         print("Scraping completed for all districts.")
     else:
         print("Scraping skipped.")
+    
     # Ask user if they want to start parsing
     user_input = input("Do you want to start parsing? (yes/no): ").strip().lower()
     if user_input == 'yes':

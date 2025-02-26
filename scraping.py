@@ -17,18 +17,18 @@ from selenium.common.exceptions import TimeoutException
 
 
 districts = [
-    # "hoan-kiem",
-    # "thanh-xuan", 
-    # "cau-giay", 
+    "hoan-kiem",
+    "thanh-xuan",
+    "cau-giay",
     "nam-tu-liem",
-    # "bac-tu-liem", 
-    # "hai-ba-trung", 
-    # "dong-da", 
-    # "ha-dong", 
-    # "hoang-mai",
-    # "long-bien", 
-    # "tay-ho",
-    # "ba-dinh",
+    "bac-tu-liem",
+    "hai-ba-trung",
+    "dong-da",
+    "ha-dong",
+    "hoang-mai",
+    "long-bien",
+    "tay-ho",
+    "ba-dinh",
 ]
 
 def print_memory_usage(stop_event):
