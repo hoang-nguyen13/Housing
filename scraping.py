@@ -10,7 +10,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchWindowException
+from selenium.common.exceptions import TimeoutException, NoSuchWindowException, WebDriverException
 from bs4 import BeautifulSoup
 import re
 import gc
@@ -47,7 +47,7 @@ def setup_driver(use_chrome=False):
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-extensions")
         options.add_argument("--window-size=800,600")
-        options.add_argument("user-data-dir=./chrome_profile")  # Persistent profile
+        options.add_argument("--user-data-dir=./chrome_profile")  # Persistent profile
         driver = uc.Chrome(options=options, driver_executable_path=CHROMEDRIVER_PATH, use_subprocess=True)
         print(f"PID {os.getpid()} - Undetected ChromeDriver initialized")
     else:
@@ -72,20 +72,19 @@ def pre_patch_chromedriver():
     else:
         print("ChromeDriver already patched at", CHROMEDRIVER_PATH)
 
-def scrape_district(district, use_chrome=False):
+def scrape_district(district, driver, use_chrome=False):
     """
     Scrape real estate listings for a specific district on BatDongSan.com.vn
     and save the data to a CSV file, including coordinates from detail pages.
 
     Args:
         district (str): The district to scrape listings for.
-        use_chrome (bool): If True, use undetected_chromedriver; if False, use Safari.
+        driver: WebDriver instance to use for scraping.
+        use_chrome (bool): If True, assume undetected_chromedriver; if False, assume Safari.
     Returns:
         None
     """
-    print(f"Scraping {district} with {'Undetected Chrome' if use_chrome else 'Safari'}...")    
-    # Set up WebDriver
-    driver = setup_driver(use_chrome=use_chrome)
+    print(f"Scraping {district} with {'Undetected Chrome' if use_chrome else 'Safari'}...")
 
     first_page_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}"
     paginated_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}/p{{}}"
@@ -126,6 +125,11 @@ def scrape_district(district, use_chrome=False):
                     print(f"Timeout waiting for re__srp-list on {url}: {e} (Unexpected, debug saved)")
                     with open(f"debug_{district}_page_{page}.html", "w") as f:
                         f.write(page_source)
+                break
+            except WebDriverException as e:
+                print(f"WebDriverException on {url}: {e}. Debug saved.")
+                with open(f"debug_{district}_page_{page}_crash.html", "w") as f:
+                    f.write(driver.page_source)
                 break
 
             # Get HTML content
@@ -212,8 +216,12 @@ def scrape_district(district, use_chrome=False):
                             if match:
                                 coordinates = f"{match.group(1)}, {match.group(2)}"
                         print(f"Coordinates extracted for Product ID {product_id}: {coordinates}")
-                    except (TimeoutException, NoSuchWindowException) as e:
-                        print(f"Detail page error for {full_href}: {e}. Coordinates set to N/A.")
+                    except TimeoutException as e:
+                        print(f"Timeout on detail page {full_href}: {e}. Coordinates set to N/A.")
+                    except WebDriverException as e:
+                        print(f"WebDriverException on detail page {full_href}: {e}. Debug saved, coordinates set to N/A.")
+                        with open(f"debug_{district}_detail_{product_id}.html", "w") as f:
+                            f.write(driver.page_source)
                 
                 district_data.append([product_id, date_element, product_title] + list(extracted_details.values()) + [coordinates])
                 print(f"Added listing: Product ID {product_id}, Coordinates: {coordinates}")
@@ -221,16 +229,16 @@ def scrape_district(district, use_chrome=False):
             # Save data incrementally after each page
             if district_data:
                 df_page = pd.DataFrame(district_data, columns=["Id", "Date Posted", "Product Title"] + list(details.keys()) + ["Coordinates"])
-                df_page.to_csv(csv_file_path, mode="a", header=(page == 1), index=False)
+                # Check if file exists and has data
+                file_exists = os.path.exists(csv_file_path) and os.path.getsize(csv_file_path) > 0
+                df_page.to_csv(csv_file_path, mode="a", header=not file_exists, index=False)
                 print(f"Data saved for page {page}: {len(district_data)} listings.")
                 district_data = []  # Reset list
-            
             gc.collect()
             page += 1  # Move to next page
 
     finally:
         stop_event.set()
         memory_thread.join(timeout=1)  # Give thread a second to finish
-        driver.quit()
         print(f"Finished scraping for {district}. Data saved.")
     return None

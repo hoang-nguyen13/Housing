@@ -1,5 +1,5 @@
 import time
-from scraping import scrape_district, districts, pre_patch_chromedriver
+from scraping import scrape_district, districts, setup_driver, pre_patch_chromedriver
 
 def main():
     response = input("Do you want to start scraping? (yes/no): ").strip().lower()
@@ -13,10 +13,16 @@ def main():
     if use_chrome:
         pre_patch_chromedriver()  # Ensure ChromeDriver is ready before scraping
     
-    for district in districts:
-        scrape_district(district, use_chrome=use_chrome)
-        print(f"Completed {district}. Waiting 10 seconds before next district...")
-        time.sleep(10)  # Wait 10 seconds between districts
+    # Initialize driver once and reuse it
+    driver = setup_driver(use_chrome=use_chrome)
+    
+    try:
+        for district in districts:
+            scrape_district(district, driver, use_chrome=use_chrome)
+            print(f"Completed {district}. Waiting 10 seconds before next district...")
+            time.sleep(10)  # Wait 10 seconds between districts
+    finally:
+        driver.quit()  # Ensure driver is closed even on error
 
 if __name__ == "__main__":
     main()
