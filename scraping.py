@@ -6,6 +6,7 @@ import os
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.safari.options import Options as SafariOptions
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -20,6 +21,9 @@ districts = [
     "tay-ho", "ba-dinh"
 ]
 
+# Pre-patched ChromeDriver path
+CHROMEDRIVER_PATH = "/Users/hoangnguyen/Library/Application Support/undetected_chromedriver/undetected_chromedriver"
+
 def print_memory_usage(stop_event):
     process = psutil.Process()
     while not stop_event.is_set():
@@ -27,11 +31,30 @@ def print_memory_usage(stop_event):
         print(f"Memory Usage - RSS: {mem_info.rss / 1024 / 1024:.2f} MB")
         time.sleep(120)
 
-def setup_driver():
-    options = SafariOptions()
-    driver = webdriver.Safari(options=options)
-    driver.set_window_size(800, 600)  # Smaller window size
-    print(f"PID {os.getpid()} - Safari driver initialized")
+def setup_driver(use_chrome=False):
+    """
+    Set up either a Safari or undetected_chromedriver WebDriver.
+
+    Args:
+        use_chrome (bool): If True, use undetected_chromedriver; if False, use Safari.
+    Returns:
+        WebDriver instance
+    """
+    if use_chrome:
+        options = uc.ChromeOptions()
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--window-size=800,600")
+        options.add_argument("user-data-dir=./chrome_profile")  # Persistent profile
+        driver = uc.Chrome(options=options, driver_executable_path=CHROMEDRIVER_PATH, use_subprocess=True)
+        print(f"PID {os.getpid()} - Undetected ChromeDriver initialized")
+    else:
+        options = SafariOptions()
+        driver = webdriver.Safari(options=options)
+        driver.set_window_size(800, 600)  # Smaller window size
+        print(f"PID {os.getpid()} - Safari driver initialized")
     return driver
 
 def check_duplicate_in_csv(csv_file_path, product_id, date_element):
@@ -40,19 +63,29 @@ def check_duplicate_in_csv(csv_file_path, product_id, date_element):
     with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
         return any(row["Id"] == product_id and row["Date Posted"] == date_element for row in csv.DictReader(csvfile))
 
-def scrape_district(district):
+def pre_patch_chromedriver():
+    """Ensure ChromeDriver is patched before scraping."""
+    if not os.path.exists(CHROMEDRIVER_PATH):
+        print("Pre-patching ChromeDriver...")
+        driver = uc.Chrome()  # This will download and patch the binary
+        driver.quit()
+    else:
+        print("ChromeDriver already patched at", CHROMEDRIVER_PATH)
+
+def scrape_district(district, use_chrome=False):
     """
     Scrape real estate listings for a specific district on BatDongSan.com.vn
     and save the data to a CSV file, including coordinates from detail pages.
 
     Args:
         district (str): The district to scrape listings for.
+        use_chrome (bool): If True, use undetected_chromedriver; if False, use Safari.
     Returns:
         None
     """
-    print(f"Scraping {district}...")    
+    print(f"Scraping {district} with {'Undetected Chrome' if use_chrome else 'Safari'}...")    
     # Set up WebDriver
-    driver = setup_driver()
+    driver = setup_driver(use_chrome=use_chrome)
 
     first_page_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}"
     paginated_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}/p{{}}"
@@ -98,6 +131,18 @@ def scrape_district(district):
             # Get HTML content
             page_source = driver.page_source
             soup = BeautifulSoup(page_source, "html.parser")
+
+            # Detect CAPTCHA for Chrome
+            if use_chrome and ("verify you are human" in page_source.lower() or soup.find("div", id="challenge-form")):
+                print(f"CAPTCHA detected on {url}. Please solve it manually in Chrome.")
+                input(f"Solve the CAPTCHA in Chrome for {district}, then press Enter to continue...")
+                try:
+                    WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CLASS_NAME, "re__srp-list")))
+                    page_source = driver.page_source  # Refresh page source after CAPTCHA
+                    soup = BeautifulSoup(page_source, "html.parser")
+                except TimeoutException:
+                    print(f"Still couldn’t load {url} after CAPTCHA. Stopping.")
+                    break
 
             # **Detect if the error page is shown**
             error_message = soup.find("div", class_="error-content")
