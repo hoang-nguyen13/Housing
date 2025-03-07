@@ -2,196 +2,179 @@ import os
 import re
 import pandas as pd
 import numpy as np
-
+import csv
 def process_real_estate_data():
     """
-    This function processes real estate data from multiple CSV files, cleans and merges them into a single DataFrame.
-    
-    Args:
-        None
-    
-    Returns:
-        None
+    Processes real estate data from CSV files, splitting rows at 10 columns.
+    Valid rows (first 10 fields) are kept, extra fields are saved to anomaly.csv.
     """
-    # List of district CSV files
-    district_files = [
-        'data/filtered_real_estate_listings_thanh-xuan.csv',
-        'data/filtered_real_estate_listings_ba-dinh.csv',
-        'data/filtered_real_estate_listings_cau-giay.csv',
-        'data/filtered_real_estate_listings_nam-tu-liem.csv',
-        'data/filtered_real_estate_listings_bac-tu-liem.csv',
-        'data/filtered_real_estate_listings_hai-ba-trung.csv',
-        'data/filtered_real_estate_listings_hoan-kiem.csv',
-        'data/filtered_real_estate_listings_dong-da.csv',
-        'data/filtered_real_estate_listings_ha-dong.csv',
-        'data/filtered_real_estate_listings_hoang-mai.csv',
-        'data/filtered_real_estate_listings_long-bien.csv',
-        'data/filtered_real_estate_listings_tay-ho.csv'
-    ]
+    district_files = []
+    month_prefixes = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
-    # Initialize an empty list to hold dataframes
+    def populate_district_files(data_dir='data'):
+        for folder_name in os.listdir(data_dir):
+            if any(folder_name.lower().startswith(month) for month in month_prefixes):
+                folder_path = os.path.join(data_dir, folder_name)
+                if os.path.isdir(folder_path):
+                    for file_name in os.listdir(folder_path):
+                        if (os.path.isfile(os.path.join(folder_path, file_name)) and 
+                            file_name.startswith('filtered_real_estate_listings') and 
+                            file_name.endswith('.csv')):
+                            full_path = os.path.join(folder_path, file_name)
+                            district_files.append(full_path)
+
+    data_directory = 'data'
+    populate_district_files(data_directory)
+
     dfs = []
+    anomaly_data = []
+    anomaly_dir = 'data/anomaly'
+    os.makedirs(anomaly_dir, exist_ok=True)
 
-        # Loop through each district file
+    # Expected header for valid data
+    expected_header = ["Id", "Date Posted", "Product Title", "Price", "Area", 
+                       "Price per m²", "Bedrooms", "Toilets", "Location", "Coordinates"]
+
     for file in district_files:
-        if os.path.exists(file):
-            # Check if file is empty (0 bytes)
-            if os.path.getsize(file) == 0:
-                print(f"Skipping empty file (0 bytes): {file}")
-                continue
-            
-            try:
-                df = pd.read_csv(file)  # Read the CSV file into a DataFrame
-                if df.empty:
-                    print(f"Skipping file with no data (but has headers): {file}")
-                    continue
-                dfs.append(df)
-                print(f"Loaded data from: {file}")
-            except pd.errors.EmptyDataError:
-                print(f"Skipping completely empty file (no headers): {file}")
-                continue
-            except Exception as e:
-                print(f"Error reading {file}: {e}")
-                continue
-        else:
+        if not os.path.exists(file):
             print(f"File does not exist: {file}")
+            continue
+        if os.path.getsize(file) == 0:
+            # print(f"Skipping empty file (0 bytes): {file}")
+            continue
 
-    # Check if there’s any data to process
+        try:
+            # Read the file manually to split rows correctly
+            with open(file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f, quotechar='"')
+                header = next(reader)  # Get header
+                if len(header) != 10:
+                    # print(f"Skipping {file}: Header has {len(header)} fields, expected 10")
+                    continue
+
+                valid_data = []
+                file_anomalies = []
+
+                for i, row in enumerate(reader, 1):
+                    if len(row) > 10:
+                        # Split into valid (first 10) and anomaly (rest)
+                        valid_row = row[:10]
+                        anomaly_row = row[10:]
+                        valid_data.append(valid_row)
+                        file_anomalies.append(row)  # Save full row for anomaly
+                        # print(f"Line {i} in {file}: Split {len(row)} fields - kept 10, marked {len(anomaly_row)} as anomaly")
+                    elif len(row) == 10:
+                        valid_data.append(row)
+                    else:
+                        # print(f"Line {i} in {file}: Found {len(row)} fields, expected 10 - added to anomalies")
+                        file_anomalies.append(row)
+
+                # Process valid data
+                if valid_data:
+                    df = pd.DataFrame(valid_data, columns=expected_header)
+                    dfs.append(df)
+                    # print(f"Loaded {len(valid_data)} valid rows from {file}")
+
+                # Handle anomalies
+                if file_anomalies:
+                    anomaly_data.extend([header] + file_anomalies)  # Include header for context
+                    # print(f"Found {len(file_anomalies)} anomalous rows in {file}, added to anomaly data")
+
+        except Exception as e:
+            print(f"Error processing {file}: {e}")
+            continue
+
+    # Save anomalies to a separate CSV with header only once
+    if anomaly_data:
+        anomaly_file = os.path.join(anomaly_dir, 'anomaly.csv')
+        with open(anomaly_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f, quotechar='"', quoting=csv.QUOTE_ALL)
+            writer.writerow(expected_header)  # Write header once
+            writer.writerows(anomaly_data)    # Write all anomaly rows
+        print(f"Saved {len(anomaly_data)} anomalous rows to {anomaly_file}")
+
     if not dfs:
         print("No valid data to process. Exiting.")
         return
-    # Concatenate all dataframes into one
+
     merged_df = pd.concat(dfs, ignore_index=True)
     
-    # Remove duplicates based on "Product ID" and "Date Posted", keeping the first occurrence
-    # if "Id" in merged_df.columns and "Date Posted" in merged_df.columns:
-    #     initial_rows = len(merged_df)
-    #     merged_df = merged_df.drop_duplicates(subset=["Id", "Date Posted"], keep='first')
-    #     duplicates_removed = initial_rows - len(merged_df)
-    #     print(f"Removed {duplicates_removed} duplicate rows based on 'Product ID' and 'Date Posted'.")
+    os.makedirs('data/relevance', exist_ok=True)
 
-    # Ensure "Location" column exists before sorting
+    merged_df.to_csv('data/relevance/merged_real_estate_listings.csv', index=False)
+
     if "Location" in merged_df.columns:
-        # Sort by "Location" in ascending alphabetical order
         merged_df = merged_df.sort_values(by="Location", ascending=True)
 
-    # Count the number of empty cells (NaN) per row
     merged_df["empty_count"] = merged_df.isna().sum(axis=1)
-
-    # Remove rows that have 3 or more empty cells
     merged_df = merged_df[merged_df["empty_count"] < 3]
-
-    # Sort: 
-    # 1️⃣ Rows with no empty cells first
-    # 2️⃣ Then rows with 1 or more empty cells at the bottom
     merged_df = merged_df.sort_values(by=["empty_count", "Location"], ascending=[True, True]).drop(columns=["empty_count"])
 
-    # Clean "Price per m²" column
     if "Price per m²" in merged_df.columns:
-        # Separate rows with nghìn/m², tỉ/m², đồng/m² and keep them at the bottom
         nghin_ti_dong_rows = merged_df[merged_df["Price per m²"].astype(str).str.contains(r'nghìn/m²|tỉ/m²|đồng/m²', na=False)]
         valid_rows = merged_df[~merged_df["Price per m²"].astype(str).str.contains(r'nghìn/m²|tỉ/m²|đồng/m²', na=False)]
-        
-        # Clean the valid rows (those that are not nghìn/m², tỉ/m², đồng/m²)
-        valid_rows.loc[:, "Price per m²"] = valid_rows["Price per m²"].astype(str).apply(lambda x: re.sub(r'\s*tr/m²', '', x))  # Remove tr/m²
-        valid_rows.loc[:, "Price per m²"] = valid_rows["Price per m²"].apply(lambda x: x.replace(",", "."))  # Replace commas with periods
-        valid_rows.loc[:, "Price per m²"] = pd.to_numeric(valid_rows["Price per m²"], errors='coerce')  # Convert to float
-        
-        # Concatenate the valid rows and nghìn/tỉ/dồng rows (with nghìn/tỉ/dồng at the bottom)
+        valid_rows.loc[:, "Price per m²"] = valid_rows["Price per m²"].astype(str).apply(lambda x: re.sub(r'\s*tr/m²', '', x))
+        valid_rows.loc[:, "Price per m²"] = valid_rows["Price per m²"].apply(lambda x: x.replace(",", "."))
+        valid_rows.loc[:, "Price per m²"] = pd.to_numeric(valid_rows["Price per m²"], errors='coerce')
         merged_df = pd.concat([valid_rows, nghin_ti_dong_rows], ignore_index=True)
-    # Remove rows where 'Price per m²' contain "nghìn", "tỉ", or "đồng"
-    merged_df = merged_df[~merged_df["Price per m²"].str.contains("nghìn|tỉ|đồng", na=False)]
+        merged_df = merged_df[~merged_df["Price per m²"].astype(str).str.contains("nghìn|tỉ|đồng", na=False)]
 
     if "Price" in merged_df.columns:
-        # Define a function to clean and process the price values
         def clean_price(price):
             if isinstance(price, str):
-                # Check if "Giá thỏa thuận", if yes, return the same value
                 if "Giá thỏa thuận" in price:
                     return price
-                
-                # Remove "tỉ", replace "," with ".", and convert to float
                 if "tỷ" in price:
-                    price = re.sub(r"\s*tỷ", "", price)  # Remove "tỉ"
-                    price = price.replace(",", ".")  # Replace comma with period
+                    price = re.sub(r"\s*tỷ", "", price)
+                    price = price.replace(",", ".")
                     try:
-                        return float(price)  # Convert to float and multiply by 1 million (tỉ to đồng)
+                        return float(price)
                     except ValueError:
-                        return None  # Handle cases where conversion fails
-                
-                # Remove "triệu", replace "," with ".", convert to float, and divide by 1000
+                        return None
                 if "triệu" in price:
-                    price = re.sub(r"\s*triệu", "", price)  # Remove "triệu"
-                    price = price.replace(",", ".")  # Replace comma with period
+                    price = re.sub(r"\s*triệu", "", price)
+                    price = price.replace(",", ".")
                     try:
-                        return float(price) / 1000  # Convert to float and multiply by 1000 (triệu to đồng)
+                        return float(price) / 1000
                     except ValueError:
-                        return None  # Handle cases where conversion fails
-            return price  # Return the price as is if no conditions match
+                        return None
+            return price
 
-        # Apply the cleaning function to the "Price" column
         merged_df["Price"] = merged_df["Price"].apply(clean_price)
-        
+
     if "Area" in merged_df.columns:
-        # Define a function to clean and process the area values
         def clean_area(area):
             if isinstance(area, str):
-                area = area.replace("m²", "")  # Remove "m²"
-                area = area.replace(",", ".")  # Replace comma with period
+                area = area.replace("m²", "").replace(",", ".")
                 try:
-                    return float(area)  # Convert to float
+                    return float(area)
                 except ValueError:
-                    return None  # Handle cases where conversion fails
-            return area  # Return the value as is if it's not a string
+                    return None
+            return area
 
-        # Apply the cleaning function to the "Area" column
         merged_df["Area"] = merged_df["Area"].apply(clean_area)
 
-    # Remove all duplicate rows (not keeping any)
     merged_df = merged_df[~merged_df.duplicated(keep=False)]
-
-    # Convert "Price" to string first to ensure compatibility for replacement
-    merged_df["Price"] = merged_df["Price"].astype(str)
-
-    # Replace "Giá thỏa thuận" with -1, then convert to float
-    merged_df["Price"] = merged_df["Price"].replace("Giá thỏa thuận", -1, regex=False)
-    merged_df["Price"] = pd.to_numeric(merged_df["Price"], errors='coerce')  # Convert to float, errors become NaN
-
-    # Convert "Price per m²" to float
-    merged_df["Price per m²"] = pd.to_numeric(merged_df["Price per m²"], errors='coerce')
-    merged_df["Price per m²"] = merged_df["Price per m²"].replace(np.nan, 0)
-    # Convert "Area" to float
-    merged_df["Area"] = merged_df["Area"].replace(" m²", "")  # Remove "m²" if exists
+    merged_df["Price"] = merged_df["Price"].astype(str).replace("Giá thỏa thuận", -1, regex=False)
+    merged_df["Price"] = pd.to_numeric(merged_df["Price"], errors='coerce')
+    merged_df["Price per m²"] = pd.to_numeric(merged_df["Price per m²"], errors='coerce').replace(np.nan, 0)
     merged_df["Area"] = pd.to_numeric(merged_df["Area"], errors='coerce')
 
     merged_df.insert(merged_df.columns.get_loc("Price per m²") + 1, "calc price", None)
-
-    # Ensure "Price per m²" and "Area" are numeric, then calculate "calc price"
-    merged_df["Price per m²"] = pd.to_numeric(merged_df["Price per m²"], errors='coerce')
-    merged_df["Area"] = pd.to_numeric(merged_df["Area"], errors='coerce')
-
-    # Calculate the "calc price" and insert it into the column
     merged_df["calc price"] = (merged_df["Price per m²"] * merged_df["Area"]) / 1000
     merged_df["calc price"] = merged_df["calc price"].apply(lambda x: round(x, 2))
     merged_df["calc price"] = (merged_df["calc price"] - merged_df["Price"]).apply(lambda x: round(x, 3))
 
-    # Remove rows where "calc price" deviates too much from 0, except for -1
-    tolerance = 1.1  # Define a tolerance level
+    tolerance = 1.1
     merged_df = merged_df[(merged_df["calc price"].abs() <= tolerance) | (merged_df["calc price"] == -1)]
 
-    # Save the sorted dataframe back to a CSV
-    merged_df.to_csv('data/merged_real_estate_listings.csv', index=False)
+    if "Id" in merged_df.columns and "Date Posted" in merged_df.columns:
+        initial_rows = len(merged_df)  # Number of rows before deduplication
+        print(f"Number of rows before deduplication: {initial_rows}")
+        merged_df = merged_df.drop_duplicates(subset=["Id", "Date Posted"], keep='first')
+        final_rows = len(merged_df)  # Number of rows after deduplication
+        print(f"Number of rows after deduplication: {final_rows}")
 
-    print("✔ Data has been merged, sorted alphabetically by 'Location'.")
-    print("✔ Rows with 3 or more empty cells have been removed.")
-    print("✔ 'Price per m²' column has been cleaned.")
-    print("✔ Rows with invalid 'Price per m²' values have been removed.")
-    print("✔ 'Price' column has been cleaned.")
-    print("✔ 'Area' column has been cleaned.")
-    print("✔ Duplicate rows have been removed.")
-    print("✔ 'Giá thỏa thuận' values have been replaced with -1 in 'Price' column.")
-    print("✔ 'calc price' column has been calculated and added.")
-    print("✔ Rows with 'calc price' deviating too much from 0 have been removed.")
-    print("✔ Final data has been saved to 'data/merged_real_estate_listings.csv'.")
-    
-    return None
+      # Sort by Date Posted, then Location, then Price
+    merged_df = merged_df.sort_values(by=["Date Posted", "Location", "Price"], ascending=[False, True, True])
+    merged_df.to_csv('data/relevance/merged_real_estate_listings_parsed.csv', index=False)
