@@ -20,21 +20,6 @@ import socket
 
 duplicate_cache = set()
 
-districts = [
-    "hoan-kiem",
-    "thanh-xuan",
-    "cau-giay",
-    "nam-tu-liem",
-    "bac-tu-liem",
-    "hai-ba-trung",
-    "dong-da",
-    "ha-dong",
-    "hoang-mai",
-    "long-bien",
-    "tay-ho",
-    "ba-dinh",
-]
-
 def check_internet_connection():
     try:
         socket.create_connection(("8.8.8.8", 53), timeout=5)
