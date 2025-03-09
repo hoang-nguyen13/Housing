@@ -1,6 +1,4 @@
 import time
-import psutil
-import threading
 import csv
 import os
 import re
@@ -45,16 +43,6 @@ def wait_for_internet():
             return
     print("Internet still unavailable after 5 minutes. Continuing to wait...")
 
-def print_memory_usage(stop_event):
-    process = psutil.Process()
-    while not stop_event.is_set():
-        mem_info = process.memory_info()
-        rss_mb = mem_info.rss / 1024 / 1024
-        vms_mb = mem_info.vms / 1024 / 1024
-        print(f"Memory Usage - RSS: {rss_mb:.2f} MB, VMS: {vms_mb:.2f} MB")
-        time.sleep(480)
-    return None
-
 def setup_driver():
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -80,14 +68,10 @@ def load_csv_to_cache(csv_file_path_merged):
     if os.path.exists(csv_file_path_merged):
         with open(csv_file_path_merged, 'r', newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
-            initial_size = len(duplicate_cache)
-            sample_entries = []
-            for i, row in enumerate(reader):
+            for row in reader:
                 if "Id" in row and "Date Posted" in row and row["Id"] and row["Date Posted"]:
                     entry = (str(row["Id"]).strip(), str(row["Date Posted"]).strip())
                     duplicate_cache.add(entry)
-                    if i < 5:
-                        sample_entries.append(entry)
                 else:
                     print(f"Skipping invalid row: {row}")
     else:
@@ -95,10 +79,7 @@ def load_csv_to_cache(csv_file_path_merged):
 
 def check_duplicate_in_csv(product_id, date_element):
     check_tuple = (product_id, date_element)
-    is_duplicate = check_tuple in duplicate_cache
-    if is_duplicate:
-        print(f"Duplicate found: ID={product_id}, Date={date_element}")
-    return is_duplicate
+    return check_tuple in duplicate_cache  # Silently return True/False without printing
 
 def fetch_coordinates(driver, full_href, product_id):
     coordinates = "N/A"
@@ -154,10 +135,6 @@ def scrape_district(district):
         with open(csv_file_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(headers)
-    stop_event = threading.Event()
-    memory_thread = threading.Thread(target=print_memory_usage, args=(stop_event,))
-    memory_thread.daemon = True
-    memory_thread.start()
     load_csv_to_cache(csv_file_path_merged)
     try:  
         wait_for_internet()
@@ -205,7 +182,6 @@ def scrape_district(district):
             if not srp_list:
                 print(f"No listings on page {page}. Assuming end of results.")
                 break
-            srp_list = soup.find("div", class_="re__srp-list")
             all_cards = srp_list.find_all("div", class_="js__card", recursive=True)
             for card in all_cards:
                 card_classes = " ".join(card.get("class", []))
@@ -257,7 +233,5 @@ def scrape_district(district):
             pbar.update(1)
         pbar.close()
     finally:
-        stop_event.set()
-        memory_thread.join(timeout=1)
         driver.quit()
         print(f"Finished scraping for {district}. Data saved.")
