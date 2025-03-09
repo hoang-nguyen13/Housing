@@ -1,38 +1,38 @@
-from multiprocessing import Pool, Value  # Import Pool for parallel tasks and Value for shared counter
-from scraping import scrape_district  # Import districts list and scraping function
-from fetch_parse import process_real_estate_data  # Import data processing function
+from multiprocessing import Pool, Value
+from scraping import scrape_district
+from fetch_parse import process_real_estate_data
 from ML import house_prediction
-from tqdm import tqdm  # Import tqdm for progress bars
-import sys  # Import sys for output control
-import subprocess  # Import subprocess to run app.py
+from tqdm import tqdm
+import sys
+import subprocess
+import os
 
 def init_counter(counter):
     """Initialize the shared counter for multiprocessing."""
     global district_counter
     district_counter = counter
 
-def scrape_with_counter(district):
-    """Wrapper function to scrape a district and increment the counter."""
-    scrape_district(district)
-    with district_counter.get_lock():
-        district_counter.value += 1
-
 def main():
     """
-    Main function to scrape real estate listings for districts provided via arguments,
-    process the data, and activate app.py after model building.
+    Main function to scrape real estate listings, process data, and build model based on command-line arguments.
     """
+    os.environ['PYTHONUNBUFFERED'] = '1'
     counter = Value('i', 0)
 
     try:
-        # Scrape districts provided via command-line arguments (from selector.js)
-        if len(sys.argv) > 1:
-            districts_to_scrape = sys.argv[1:]  # All arguments after script name
+        # Parse command-line arguments
+        args = sys.argv[1:]
+        districts_to_scrape = [arg for arg in args if arg not in ['--parse', '--no-parse', '--build-model', '--no-build-model']]
+        do_parse = '--parse' in args
+        do_build_model = '--build-model' in args
+
+        # Scrape if districts are provided
+        if districts_to_scrape:
             total_districts_to_scrape = len(districts_to_scrape)
             print(f"Starting scraping for {total_districts_to_scrape} district(s): {', '.join(districts_to_scrape)}...")
             with Pool(processes=12, initializer=init_counter, initargs=(counter,)) as pool:
                 try:
-                    results = pool.imap_unordered(scrape_with_counter, districts_to_scrape)
+                    results = pool.imap_unordered(scrape_district, districts_to_scrape)
                     for _ in tqdm(results, total=total_districts_to_scrape, desc="Scraping Districts", unit="district", file=sys.stdout):
                         pass
                     print(f"\nNumber of districts scraped: {total_districts_to_scrape}/{total_districts_to_scrape}")
@@ -48,18 +48,19 @@ def main():
                     pool.close()
                     pool.join()
                     return
+        else:
+            print("No districts provided; skipping scraping.")
 
-        # Proceed with parsing and model building
-        user_input = input("Do you want to start parsing? (yes/no): ").strip().lower()
-        if user_input == 'yes':
+        # Parsing
+        if do_parse:
             print("Starting parsing...")
             process_real_estate_data()
             print("Parsing completed for all districts.")
         else:
             print("Parsing skipped.")
-        
-        user_input = input("Do you want to build prediction model? (yes/no): ").strip().lower()
-        if user_input == 'yes':
+
+        # Prediction model
+        if do_build_model:
             print("Building prediction model...")
             house_prediction()
             print("Prediction model done!")
@@ -72,10 +73,11 @@ def main():
             except FileNotFoundError:
                 print("app.py not found. Please ensure it exists in the same directory.")
         else:
+            print("Building prediction model skipped.")
             print("Starting app.py...")
             try:
                 subprocess.run(["streamlit", "run", "app.py"], check=True)
-                print("app.py executed successfully.")
+                # print("app.py executed successfully.")
             except subprocess.CalledProcessError as e:
                 print(f"Error running app.py: {e}")
             except FileNotFoundError:

@@ -15,6 +15,7 @@ from tqdm import tqdm
 import gc
 from datetime import datetime
 import socket
+import sys
 
 duplicate_cache = set()
 
@@ -34,14 +35,17 @@ def wait_for_internet():
     elapsed = 0
     while elapsed < max_wait:
         print(f"Internet connection lost. Waiting up to {max_wait - elapsed} seconds...")
+        sys.stdout.flush()  # Force output
         was_disconnected = True
         time.sleep(check_interval)
         elapsed += check_interval
         if check_internet_connection():
             if was_disconnected:
                 print("Internet connection restored. Resuming operation.")
+                sys.stdout.flush()  # Force output
             return
     print("Internet still unavailable after 5 minutes. Continuing to wait...")
+    sys.stdout.flush()  # Force output
 
 def setup_driver():
     chrome_options = Options()
@@ -74,12 +78,14 @@ def load_csv_to_cache(csv_file_path_merged):
                     duplicate_cache.add(entry)
                 else:
                     print(f"Skipping invalid row: {row}")
+                    sys.stdout.flush()  # Force output
     else:
         print(f"CSV file not found at {csv_file_path_merged}")
+        sys.stdout.flush()  # Force output
 
 def check_duplicate_in_csv(product_id, date_element):
     check_tuple = (product_id, date_element)
-    return check_tuple in duplicate_cache  # Silently return True/False without printing
+    return check_tuple in duplicate_cache
 
 def fetch_coordinates(driver, full_href, product_id):
     coordinates = "N/A"
@@ -103,6 +109,7 @@ def fetch_coordinates(driver, full_href, product_id):
         gc.collect()
     except Exception as e:
         print(f"Failed to load {full_href}: {type(e).__name__}: {str(e)}. Coordinates set to N/A.")
+        sys.stdout.flush()  # Force output
         if 'detail_source' in locals():
             del detail_source
         if 'detail_soup' in locals():
@@ -116,6 +123,7 @@ def fetch_coordinates(driver, full_href, product_id):
 
 def scrape_district(district):
     print("Scraping for", district)
+    sys.stdout.flush()  # Force output
     driver = setup_driver()
     first_page_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}"
     paginated_url = f"https://batdongsan.com.vn/ban-can-ho-chung-cu-{district}/p{{}}"
@@ -149,6 +157,7 @@ def scrape_district(district):
             if last_page_link and "pid" in last_page_link.attrs:
                 max_page = int(last_page_link["pid"])
         print("Estimated max page for", district, "is", max_page)
+        sys.stdout.flush()  # Force output
         pbar = tqdm(total=max_page, desc=f"Scraping {district}", unit="page")
         while True:
             url = first_page_url if page == 1 else paginated_url.format(page)
@@ -165,10 +174,12 @@ def scrape_district(district):
                 except TimeoutException:
                     if retries > 0:
                         print(f"Timeout on page {page}. Retrying (attempts left: {retries})...")
+                        sys.stdout.flush()  # Force output
                         retries -= 1
                         continue
                     else:
                         print(f"Timeout on page {page} after retry. Stopping.")
+                        sys.stdout.flush()  # Force output
                         break
             if retries == 0:
                 break
@@ -177,10 +188,12 @@ def scrape_district(district):
             empty_results = soup.find("div", class_="re__srp-empty")
             if empty_results and "Không có kết quả nào phù hợp" in empty_results.get_text():
                 print(f"No more results found on page {page}. Stopping scraping for {district}.")
+                sys.stdout.flush()  # Force output
                 break
             srp_list = soup.find("div", class_="re__srp-list")
             if not srp_list:
                 print(f"No listings on page {page}. Assuming end of results.")
+                sys.stdout.flush()  # Force output
                 break
             all_cards = srp_list.find_all("div", class_="js__card", recursive=True)
             for card in all_cards:
@@ -235,3 +248,4 @@ def scrape_district(district):
     finally:
         driver.quit()
         print(f"Finished scraping for {district}. Data saved.")
+        sys.stdout.flush()  # Force output
